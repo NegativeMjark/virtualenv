@@ -757,6 +757,15 @@ def main():
         action='store_true',
         help="DEPRECATED. Retained only for backward compatibility. This option has no effect.")
 
+    parser.add_option(
+        '--no-copy-python-binary',
+        dest='copy_python_binary',
+        default=True,
+        action='store_false',
+        help='Do not copy the python interpreter executable to the new virualenv. '
+              'Installs a script that references the interpreter instead.'
+    )
+
     if 'extend_parser' in globals():
         extend_parser(parser)
 
@@ -822,7 +831,8 @@ def main():
                        never_download=True,
                        no_setuptools=options.no_setuptools,
                        no_pip=options.no_pip,
-                       symlink=options.symlink)
+                       symlink=options.symlink,
+                       copy_python_binary=options.copy_python_binary)
     if 'after_install' in globals():
         after_install(options, home_dir)
 
@@ -968,7 +978,8 @@ def install_wheel(project_names, py_executable, search_dirs=None):
 def create_environment(home_dir, site_packages=False, clear=False,
                        unzip_setuptools=False,
                        prompt=None, search_dirs=None, never_download=False,
-                       no_setuptools=False, no_pip=False, symlink=True):
+                       no_setuptools=False, no_pip=False, symlink=True,
+                       copy_python_binary=True):
     """
     Creates a new environment in ``home_dir``.
 
@@ -982,7 +993,8 @@ def create_environment(home_dir, site_packages=False, clear=False,
 
     py_executable = os.path.abspath(install_python(
         home_dir, lib_dir, inc_dir, bin_dir,
-        site_packages=site_packages, clear=clear, symlink=symlink))
+        site_packages=site_packages, clear=clear, symlink=symlink,
+        copy_python_binary=copy_python_binary))
 
     install_distutils(home_dir)
 
@@ -1136,7 +1148,7 @@ def subst_path(prefix_path, prefix, home_dir):
     return prefix_path.replace(prefix, home_dir, 1)
 
 
-def install_python(home_dir, lib_dir, inc_dir, bin_dir, site_packages, clear, symlink=True):
+def install_python(home_dir, lib_dir, inc_dir, bin_dir, site_packages, clear, symlink=True, copy_python_binary=True):
     """Install just the base environment, no distutils patches etc"""
     if sys.executable.startswith(bin_dir):
         print('Please use the *system* python to run this script')
@@ -1274,7 +1286,16 @@ def install_python(home_dir, lib_dir, inc_dir, bin_dir, site_packages, clear, sy
     if sys.executable != py_executable:
         ## FIXME: could I just hard link?
         executable = sys.executable
-        shutil.copyfile(executable, py_executable)
+        if copy_python_binary:
+            shutil.copyfile(executable, py_executable)
+        else:
+            with open(py_executable, 'w') as py_executable_script:
+                # Rather than copying the entire binary install a small python
+                # script that execs the original binary setting arg0 to be the
+                # script
+                py_executable_script.write('#! %s\n' % (executable,))
+                py_executable_script.write('import os,sys\n')
+                py_executable_script.write('os.execv(sys.executable,sys.argv)\n')
         make_exe(py_executable)
         if is_win or is_cygwin:
             pythonw = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
